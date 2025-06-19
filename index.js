@@ -1,6 +1,5 @@
 const WebSocket = require('ws');
 const http = require('http');
-const fetch = require('node-fetch'); // 👈 import node-fetch
 
 const server = http.createServer();
 const wss = new WebSocket.Server({ server });
@@ -16,33 +15,24 @@ wss.on('connection', (ws, req) => {
         console.log(`✅ User connected: ${userId}`);
     }
 
-    ws.on('message', async (message) => {
+    ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
             const { from, to, content, timestamp } = data;
 
-            // 1. Forward message if recipient is connected
+            // Forward to the recipient if connected
             if (clients.has(to)) {
-                clients.get(to).send(JSON.stringify(data));
+                clients.get(to).send(JSON.stringify({ from, to, content, timestamp }));
                 console.log(`📤 ${from} ➡ ${to}: ${content}`);
             } else {
                 console.log(`❌ ${to} is not connected`);
             }
 
-            // 2. Save to MySQL via PHP API
-            await fetch('https://joagyapongltd.com/guidance_and_counselling/api/save_chat.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({
-                    from,
-                    to,
-                    message: content,
-                    timestamp: timestamp || new Date().toISOString()
-                })
-            });
+            // Optional: POST to your PHP API to save the message
+            // You can use node-fetch to POST to `https://yourdomain.com/api/insert_message.php`
 
         } catch (err) {
-            console.error('❗ Error processing message:', err);
+            console.error('❗ Invalid message format', err);
         }
     });
 
