@@ -6,9 +6,17 @@ const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 const clients = new Map();
 
+// Heartbeat function to track if a connection is still alive
+function heartbeat() {
+  this.isAlive = true;
+}
+
 wss.on('connection', (ws, req) => {
   const params = new URLSearchParams(req.url.replace('/?', ''));
   const userId = params.get('user_id');
+
+  ws.isAlive = true;
+  ws.on('pong', heartbeat); // Responds to ping
 
   if (userId) {
     clients.set(userId, ws);
@@ -21,6 +29,10 @@ wss.on('connection', (ws, req) => {
       const { type = 'message', from, to, content, timestamp = new Date().toISOString(), message_id } = data;
 
       switch (type) {
+        case 'ping':
+          ws.isAlive = true;
+          break;
+
         case 'typing':
           if (clients.has(to)) {
             clients.get(to).send(JSON.stringify({ type: 'typing', from }));
@@ -63,7 +75,6 @@ wss.on('connection', (ws, req) => {
 
         case 'message':
         default:
-          // Save to DB
           const response = await fetch('https://joagyapongltd.com/guidance_and_counselling/api/save_chat.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -83,14 +94,13 @@ wss.on('connection', (ws, req) => {
               is_read: '0',
             };
 
-            // Send to recipient only (don't send back to sender to avoid duplication)
+            // Send to recipient only
             if (clients.has(to)) {
               clients.get(to).send(JSON.stringify(msgData));
               console.log(`📤 ${from} ➡ ${to}: ${content}`);
             } else {
               console.log(`❌ ${to} is not connected`);
             }
-
           } else {
             console.error('❌ Failed to save message:', result.message);
           }
@@ -107,6 +117,19 @@ wss.on('connection', (ws, req) => {
     }
   });
 });
+
+//  Check every 30s if clients are alive
+setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log('❌ Terminating dead socket');
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping(); // Ask for pong
+  });
+}, 30000); // 30 seconds
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
