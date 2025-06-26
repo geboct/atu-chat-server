@@ -63,14 +63,30 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'edit':
-          if (clients.has(to)) {
-            clients.get(to).send(JSON.stringify({ type: 'edit', message_id, content }));
-          }
-          await fetch('https://joagyapongltd.com/guidance_and_counselling/api/edit_chat.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message_id, new_content: content }),
-          });
+                    
+            const editPayload = {
+                type: 'edit',
+                message_id,
+                content,
+            };
+
+            // Send to recipient
+            if (clients.has(to)) {
+                clients.get(to).send(JSON.stringify(editPayload));
+            }
+
+            // Also send to sender (so sender can update UI)
+            if (clients.has(from)) {
+                clients.get(from).send(JSON.stringify(editPayload));
+            }
+
+            // Update DB
+            await fetch('https://joagyapongltd.com/guidance_and_counselling/api/edit_chat.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message_id, new_content: content }),
+            });
+  
           break;
 
         case 'message':
