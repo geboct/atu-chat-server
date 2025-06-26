@@ -83,7 +83,7 @@ wss.on('connection', (ws, req) => {
               is_read: '0',
             };
 
-            // Send to recipient
+            // Send to recipient only (don't send back to sender to avoid duplication)
             if (clients.has(to)) {
               clients.get(to).send(JSON.stringify(msgData));
               console.log(`📤 ${from} ➡ ${to}: ${content}`);
@@ -91,10 +91,6 @@ wss.on('connection', (ws, req) => {
               console.log(`❌ ${to} is not connected`);
             }
 
-            // Optionally send message back to sender for confirmation
-            if (clients.has(from)) {
-              clients.get(from).send(JSON.stringify(msgData));
-            }
           } else {
             console.error('❌ Failed to save message:', result.message);
           }
