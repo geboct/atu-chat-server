@@ -26,13 +26,13 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(message);
       const {
-        type = 'message',          // WebSocket operation type
+        type = 'message',           // WebSocket protocol type
         from,
         to,
         content,
         timestamp = new Date().toISOString(),
         message_id,
-        content_type = 'text'      // 'text', 'image', 'file', etc.
+        message_type = 'text'       // ✅ Use message_type for DB
       } = data;
 
       switch (type) {
@@ -90,7 +90,7 @@ wss.on('connection', (ws, req) => {
               to,
               content,
               timestamp,
-              type: content_type   // Pass actual content type to PHP
+              message_type // ✅ match DB column
             }),
           });
 
@@ -98,7 +98,7 @@ wss.on('connection', (ws, req) => {
           try {
             result = await response.json();
           } catch (parseErr) {
-            console.error('❗ JSON parse error from PHP response:', parseErr);
+            console.error('❗ JSON parse error from PHP:', parseErr);
             return;
           }
 
@@ -111,22 +111,19 @@ wss.on('connection', (ws, req) => {
               timestamp: result.timestamp,
               message_id: result.message_id,
               is_read: '0',
-              content_type,  // Optional if client needs it
+              message_type // ✅ pass along to frontend
             };
 
             if (clients.has(to)) {
               clients.get(to).send(JSON.stringify(msgData));
-              console.log(`📤 ${from} ➡ ${to}: [${content_type}] ${content}`);
-            } else {
-              console.log(`❌ User ${to} is not online`);
+              console.log(`📤 ${from} ➡ ${to}: [${message_type}] ${content}`);
             }
           } else {
             console.error('❌ Save failed:', result.message);
           }
-          break;
       }
     } catch (err) {
-      console.error('❗ Invalid message format:', err.message);
+      console.error('❗ Invalid message format:', err);
     }
   });
 
@@ -138,10 +135,9 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Heartbeat ping every 30 seconds
 setInterval(() => {
   wss.clients.forEach((ws) => {
-    if (!ws.isAlive) {
+    if (ws.isAlive === false) {
       console.log('❌ Terminating dead socket');
       return ws.terminate();
     }
