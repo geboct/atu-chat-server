@@ -26,13 +26,13 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(message);
       const {
-        type = 'message',
+        type = 'message',          // WebSocket operation type
         from,
         to,
         content,
         timestamp = new Date().toISOString(),
         message_id,
-        message_type = 'text'
+        content_type = 'text'      // 'text', 'image', 'file', etc.
       } = data;
 
       switch (type) {
@@ -90,7 +90,7 @@ wss.on('connection', (ws, req) => {
               to,
               content,
               timestamp,
-              type: message_type
+              type: content_type   // Pass actual content type to PHP
             }),
           });
 
@@ -98,7 +98,7 @@ wss.on('connection', (ws, req) => {
           try {
             result = await response.json();
           } catch (parseErr) {
-            console.error('❗ JSON parse error from PHP:', parseErr);
+            console.error('❗ JSON parse error from PHP response:', parseErr);
             return;
           }
 
@@ -111,19 +111,22 @@ wss.on('connection', (ws, req) => {
               timestamp: result.timestamp,
               message_id: result.message_id,
               is_read: '0',
-              message_type,
+              content_type,  // Optional if client needs it
             };
 
             if (clients.has(to)) {
               clients.get(to).send(JSON.stringify(msgData));
-              console.log(`📤 ${from} ➡ ${to}: [${message_type}] ${content}`);
+              console.log(`📤 ${from} ➡ ${to}: [${content_type}] ${content}`);
+            } else {
+              console.log(`❌ User ${to} is not online`);
             }
           } else {
             console.error('❌ Save failed:', result.message);
           }
+          break;
       }
     } catch (err) {
-      console.error('❗ Invalid message format:', err);
+      console.error('❗ Invalid message format:', err.message);
     }
   });
 
@@ -135,14 +138,13 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Heartbeat every 30 seconds
+// Heartbeat ping every 30 seconds
 setInterval(() => {
   wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
+    if (!ws.isAlive) {
       console.log('❌ Terminating dead socket');
       return ws.terminate();
     }
-
     ws.isAlive = false;
     ws.ping();
   });
