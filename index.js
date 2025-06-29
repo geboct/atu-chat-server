@@ -6,7 +6,7 @@ const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 const clients = new Map();
 
-// Heartbeat function to track if a connection is still alive
+// Heartbeat function to check if connection is alive
 function heartbeat() {
   this.isAlive = true;
 }
@@ -16,7 +16,7 @@ wss.on('connection', (ws, req) => {
   const userId = params.get('user_id');
 
   ws.isAlive = true;
-  ws.on('pong', heartbeat); // Responds to ping
+  ws.on('pong', heartbeat);
 
   if (userId) {
     clients.set(userId, ws);
@@ -26,7 +26,15 @@ wss.on('connection', (ws, req) => {
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
-      const { type = 'message', from, to, content, timestamp = new Date().toISOString(), message_id } = data;
+      const {
+        type = 'message', // WebSocket message type (message, typing, edit, etc.)
+        from,
+        to,
+        content,
+        timestamp = new Date().toISOString(),
+        message_id,
+        type: message_type = 'text' // Actual message content type (text, image, file)
+      } = data;
 
       switch (type) {
         case 'ping':
@@ -36,7 +44,7 @@ wss.on('connection', (ws, req) => {
         case 'typing':
           if (clients.has(to)) {
             clients.get(to).send(JSON.stringify({ type: 'typing', from }));
-            console.log(`✍️ Typing indicator from ${from} to ${to}`);
+            console.log(`✍️ Typing from ${from} to ${to}`);
           }
           break;
 
@@ -63,30 +71,25 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'edit':
-                    
-            const editPayload = {
-                type: 'edit',
-                message_id,
-                content,
-            };
+          const editPayload = {
+            type: 'edit',
+            message_id,
+            content,
+          };
 
-            // Send to recipient
-            if (clients.has(to)) {
-                clients.get(to).send(JSON.stringify(editPayload));
-            }
+          if (clients.has(to)) {
+            clients.get(to).send(JSON.stringify(editPayload));
+          }
 
-            // Also send to sender (so sender can update UI)
-            if (clients.has(from)) {
-                clients.get(from).send(JSON.stringify(editPayload));
-            }
+          if (clients.has(from)) {
+            clients.get(from).send(JSON.stringify(editPayload));
+          }
 
-            // Update DB
-            await fetch('https://joagyapongltd.com/guidance_and_counselling/api/edit_chat.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message_id, new_content: content }),
-            });
-  
+          await fetch('https://joagyapongltd.com/guidance_and_counselling/api/edit_chat.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message_id, new_content: content }),
+          });
           break;
 
         case 'message':
@@ -94,32 +97,41 @@ wss.on('connection', (ws, req) => {
           const response = await fetch('https://joagyapongltd.com/guidance_and_counselling/api/save_chat.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from, to, content, timestamp }),
+            body: JSON.stringify({
+              from,
+              to,
+              content,
+              timestamp,
+              type: message_type //  pass actual message type to DB
+            }),
           });
 
           const result = await response.json();
 
           if (result.status === 'success') {
             const msgData = {
-              type: 'message',
+              type: 'message', // WebSocket message type
               from,
               to,
               content,
               timestamp: result.timestamp,
               message_id: result.message_id,
               is_read: '0',
+              type_original: message_type, // Optional if needed
+              type: message_type, //  include actual content type
             };
 
-            // Send to recipient only
             if (clients.has(to)) {
               clients.get(to).send(JSON.stringify(msgData));
-              console.log(`📤 ${from} ➡ ${to}: ${content}`);
+              console.log(`📤 ${from} ➡ ${to}: [${message_type}] ${content}`);
             } else {
               console.log(`❌ ${to} is not connected`);
             }
           } else {
             console.error('❌ Failed to save message:', result.message);
           }
+
+          break;
       }
     } catch (err) {
       console.error('❗ Invalid message format:', err);
@@ -134,7 +146,7 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-//  Check every 30s if clients are alive
+// Heartbeat every 30 seconds
 setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
@@ -143,9 +155,9 @@ setInterval(() => {
     }
 
     ws.isAlive = false;
-    ws.ping(); // Ask for pong
+    ws.ping();
   });
-}, 30000); // 30 seconds
+}, 30000);
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
