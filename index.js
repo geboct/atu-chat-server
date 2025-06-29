@@ -6,7 +6,6 @@ const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 const clients = new Map();
 
-// Heartbeat function to check if connection is alive
 function heartbeat() {
   this.isAlive = true;
 }
@@ -27,13 +26,13 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(message);
       const {
-        type = 'message', // WebSocket message type (message, typing, edit, etc.)
+        type = 'message',
         from,
         to,
         content,
         timestamp = new Date().toISOString(),
         message_id,
-        type: message_type = 'text' // Actual message content type (text, image, file)
+        message_type = 'text'
       } = data;
 
       switch (type) {
@@ -44,7 +43,6 @@ wss.on('connection', (ws, req) => {
         case 'typing':
           if (clients.has(to)) {
             clients.get(to).send(JSON.stringify({ type: 'typing', from }));
-            console.log(`✍️ Typing from ${from} to ${to}`);
           }
           break;
 
@@ -71,19 +69,9 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'edit':
-          const editPayload = {
-            type: 'edit',
-            message_id,
-            content,
-          };
-
-          if (clients.has(to)) {
-            clients.get(to).send(JSON.stringify(editPayload));
-          }
-
-          if (clients.has(from)) {
-            clients.get(from).send(JSON.stringify(editPayload));
-          }
+          const editPayload = { type: 'edit', message_id, content };
+          if (clients.has(to)) clients.get(to).send(JSON.stringify(editPayload));
+          if (clients.has(from)) clients.get(from).send(JSON.stringify(editPayload));
 
           await fetch('https://joagyapongltd.com/guidance_and_counselling/api/edit_chat.php', {
             method: 'POST',
@@ -102,36 +90,37 @@ wss.on('connection', (ws, req) => {
               to,
               content,
               timestamp,
-              type: message_type //  pass actual message type to DB
+              type: message_type
             }),
           });
 
-          const result = await response.json();
+          let result;
+          try {
+            result = await response.json();
+          } catch (parseErr) {
+            console.error('❗ JSON parse error from PHP:', parseErr);
+            return;
+          }
 
           if (result.status === 'success') {
             const msgData = {
-              type: 'message', // WebSocket message type
+              type: 'message',
               from,
               to,
               content,
               timestamp: result.timestamp,
               message_id: result.message_id,
               is_read: '0',
-              type_original: message_type, // Optional if needed
-              type: message_type, //  include actual content type
+              message_type,
             };
 
             if (clients.has(to)) {
               clients.get(to).send(JSON.stringify(msgData));
               console.log(`📤 ${from} ➡ ${to}: [${message_type}] ${content}`);
-            } else {
-              console.log(`❌ ${to} is not connected`);
             }
           } else {
-            console.error('❌ Failed to save message:', result.message);
+            console.error('❌ Save failed:', result.message);
           }
-
-          break;
       }
     } catch (err) {
       console.error('❗ Invalid message format:', err);
@@ -141,7 +130,7 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     if (userId) {
       clients.delete(userId);
-      console.log(`🔌 User disconnected: ${userId}`);
+      console.log(`🔌 Disconnected: ${userId}`);
     }
   });
 });
