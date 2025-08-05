@@ -10,6 +10,15 @@ function heartbeat() {
   this.isAlive = true;
 }
 
+function broadcastToAll(data) {
+  const msg = JSON.stringify(data);
+  clients.forEach((clientWS) => {
+    if (clientWS.readyState === WebSocket.OPEN) {
+      clientWS.send(msg);
+    }
+  });
+}
+
 wss.on('connection', (ws, req) => {
   const params = new URLSearchParams(req.url.replace('/?', ''));
   const userId = params.get('user_id');
@@ -20,22 +29,38 @@ wss.on('connection', (ws, req) => {
   if (userId) {
     clients.set(userId, ws);
     console.log(`✅ User connected: ${userId}`);
+
+    // 🔹 Notify everyone this user is online
+    broadcastToAll({ type: 'online', userId });
+
+    // 🔹 Send them the current list of online users
+    ws.send(JSON.stringify({
+      type: 'online_users',
+      users: Array.from(clients.keys())
+    }));
   }
 
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
       const {
-        type = 'message',           // WebSocket protocol type
+        type = 'message',
         from,
         to,
         content,
         timestamp = new Date().toISOString(),
         message_id,
-        message_type = 'text'       // ✅ Use message_type for DB
+        message_type = 'text'
       } = data;
 
       switch (type) {
+        case 'get_online_users':
+          ws.send(JSON.stringify({
+            type: 'online_users',
+            users: Array.from(clients.keys())
+          }));
+          break;
+
         case 'ping':
           ws.isAlive = true;
           break;
@@ -90,7 +115,7 @@ wss.on('connection', (ws, req) => {
               to,
               content,
               timestamp,
-              message_type // ✅ match DB column
+              message_type
             }),
           });
 
@@ -111,26 +136,29 @@ wss.on('connection', (ws, req) => {
               timestamp: result.timestamp,
               message_id: result.message_id,
               is_read: '0',
-              message_type // ✅ pass along to frontend
+              message_type
             };
 
             if (clients.has(to)) {
               clients.get(to).send(JSON.stringify(msgData));
-              console.log(`📤 ${from} ➡ ${to}: [${message_type}] ${content}`);
+              console.log(` ${from} ➡ ${to}: [${message_type}] ${content}`);
             }
           } else {
-            console.error('❌ Save failed:', result.message);
+            console.error(' Save failed:', result.message);
           }
       }
     } catch (err) {
-      console.error('❗ Invalid message format:', err);
+      console.error(' Invalid message format:', err);
     }
   });
 
   ws.on('close', () => {
     if (userId) {
       clients.delete(userId);
-      console.log(`🔌 Disconnected: ${userId}`);
+      console.log(` Disconnected: ${userId}`);
+
+      //  Notify everyone this user went offline
+      broadcastToAll({ type: 'offline', userId });
     }
   });
 });
@@ -138,7 +166,7 @@ wss.on('connection', (ws, req) => {
 setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
-      console.log('❌ Terminating dead socket');
+      console.log(' Terminating dead socket');
       return ws.terminate();
     }
     ws.isAlive = false;
@@ -148,5 +176,5 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-  console.log(`🚀 WebSocket Server running on port ${PORT}`);
+  console.log(` WebSocket Server running on port ${PORT}`);
 });
